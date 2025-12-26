@@ -1,0 +1,8 @@
+{
+  "name": "MASTER GN7",
+  "description": "AI-powered mobile system for early detection and prevention of antenatal complications among rural women.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
