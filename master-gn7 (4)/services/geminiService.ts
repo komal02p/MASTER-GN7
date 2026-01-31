@@ -2,18 +2,14 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { HealthMetrics, RiskAssessmentResult, DietDay, SymptomAnalysis, MedicalHistory, EducationalSource, Language } from "../types.ts";
 
-// Initialize client securely using the environment variable directly as per guidelines.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-/**
- * Generates a professional app logo for MASTER GN7
- */
 export const generateAppLogo = async (): Promise<string> => {
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: [{
-        parts: [{ text: "A professional, minimalist circular logo for a maternal health AI application called MASTER GN7. The logo should feature a stylised, elegant silhouette of a mother embracing a child. Primary color: Teal (#14b8a6). Clean lines, medical aesthetic, modern, trustworthy, high contrast, minimalist flat design, isolated on a white background." }]
+        parts: [{ text: "A professional, minimalist circular logo for a maternal health AI application called MASTER GN7. The logo should feature a stylised, elegant silhouette of a mother embracing a child. Primary color: Teal (#14b8a6). Clean lines, medical aesthetic, modern, trustworthy, high contrast, minimalist flat design, isolated on a white background. Do not include any emojis or text characters." }]
       }],
       config: {
         imageConfig: {
@@ -27,14 +23,85 @@ export const generateAppLogo = async (): Promise<string> => {
         return `data:image/png;base64,${part.inlineData.data}`;
       }
     }
-    return "https://img.icons8.com/ios-filled/100/14b8a6/mother-and-child.png"; // Fallback
+    return "https://img.icons8.com/ios-filled/100/14b8a6/mother-and-child.png";
   } catch (error) {
     console.error("Error generating app logo:", error);
     return "https://img.icons8.com/ios-filled/100/14b8a6/mother-and-child.png";
   }
 };
 
-// Using gemini-3-pro-preview for complex reasoning tasks like risk analysis
+export const generateMealImage = async (prompt: string): Promise<string> => {
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: prompt,
+      config: {
+        imageConfig: {
+          aspectRatio: "1:1",
+        }
+      }
+    });
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        return `data:image/png;base64,${part.inlineData.data}`;
+      }
+    }
+    return "";
+  } catch (error) {
+    console.error("Error generating meal image:", error);
+    return "";
+  }
+};
+
+export const transcribeAudio = async (audioBase64: string): Promise<string> => {
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType: 'audio/webm',
+              data: audioBase64,
+            },
+          },
+          { text: "Transcribe this audio recording precisely. Only return the transcribed text, no other commentary." }
+        ],
+      },
+    });
+    return response.text || "";
+  } catch (error) {
+    console.error("Error transcribing audio:", error);
+    return "";
+  }
+};
+
+export const generateHealthBriefing = async (metrics: HealthMetrics, lang: Language = 'English'): Promise<{ title: string, message: string }> => {
+  try {
+    const prompt = `Based on these pregnancy metrics: BP ${metrics.systolicBP}/${metrics.diastolicBP}, Sugar ${metrics.bloodSugar}, Hemoglobin ${metrics.hemoglobin}, Week ${metrics.weekOfPregnancy}. 
+    Generate a very short, encouraging clinical daily briefing (max 15 words) in ${lang}. DO NOT use emojis.`;
+    
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            message: { type: Type.STRING }
+          },
+          required: ["title", "message"]
+        }
+      }
+    });
+    return JSON.parse(response.text!) as { title: string, message: string };
+  } catch (error) {
+    return { title: "Daily Health Check", message: "Stay hydrated and monitor your vitals today." };
+  }
+};
+
 export const analyzeRisk = async (metrics: HealthMetrics, history?: MedicalHistory, lang: Language = 'English'): Promise<RiskAssessmentResult> => {
   let historyContext = "";
   if (history) {
@@ -47,7 +114,8 @@ export const analyzeRisk = async (metrics: HealthMetrics, history?: MedicalHisto
   }
 
   const prompt = `
-    Analyze the following health metrics for a pregnant woman to detect antenatal complications:
+    Act as a world-class maternal health diagnostic AI. Your goal is 98% accuracy in clinical risk assessment.
+    Analyze the following health metrics for a pregnant woman:
     - Systolic BP: ${metrics.systolicBP} mmHg
     - Diastolic BP: ${metrics.diastolicBP} mmHg
     - Fasting Blood Sugar: ${metrics.bloodSugar} mg/dL
@@ -61,11 +129,12 @@ export const analyzeRisk = async (metrics: HealthMetrics, history?: MedicalHisto
     ${historyContext}
 
     IMPORTANT: Provide the "reasoning" and "recommendations" in ${lang}.
+    DO NOT use any emojis.
     
-    Perform a detailed multi-class classification.
+    Perform a high-fidelity diagnostic classification.
     1. Classify Risk Level: "Low Risk", "Moderate Risk", "High Risk", "Critical".
-    2. Calculate a Risk Score from 0 to 100.
-    3. Identify Potential Conditions (Include considerations for Rh-isoimmunization if Rh- is present and HIV management if Positive).
+    2. Calculate a precise Risk Score from 0 to 100 based on standard WHO maternal health protocols.
+    3. Identify specific potential conditions (e.g. Pre-eclampsia, Gestational Diabetes, Anemia).
   `;
 
   try {
@@ -94,21 +163,20 @@ export const analyzeRisk = async (metrics: HealthMetrics, history?: MedicalHisto
     return {
       riskLevel: "High Risk",
       riskScore: 85,
-      potentialConditions: ["Error"],
-      reasoning: "Analysis unavailable.",
-      recommendations: ["Consult a doctor"]
+      potentialConditions: ["Clinical Timeout"],
+      reasoning: "AI processing encountered a latency error. Given maternal health critical nature, we assume elevated risk. Please consult a clinician.",
+      recommendations: ["Seek immediate medical attention"]
     };
   }
 };
 
-// Using gemini-3-flash-preview for general text tasks
 export const analyzeSymptoms = async (symptoms: string, lang: Language = 'English'): Promise<SymptomAnalysis> => {
     const prompt = `
-      A pregnant woman is describing the following symptoms: "${symptoms}".
-      Analyze severity and provide a response in ${lang}.
+      Analyze symptoms: "${symptoms}" with 98% clinical accuracy target.
+      Provide response in ${lang}. DO NOT use emojis.
       1. Severity: "Self-Care", "Consult Doctor", "Immediate Emergency"
-      2. Possible medical causes.
-      3. Short action plan.
+      2. Possible medical causes based on pregnancy physiology.
+      3. Short clinical action plan.
     `;
   
     try {
@@ -131,30 +199,25 @@ export const analyzeSymptoms = async (symptoms: string, lang: Language = 'Englis
       return JSON.parse(response.text!) as SymptomAnalysis;
     } catch (error) {
       console.error("Error analyzing symptoms:", error);
-      return { severity: "Consult Doctor", possibleCauses: [], actionRequired: "Error" };
+      return { severity: "Consult Doctor", possibleCauses: [], actionRequired: "Connection Error." };
     }
 };
 
 export const generateDietPlan = async (metrics: HealthMetrics, foodPreference: string, lang: Language = 'English'): Promise<DietDay[]> => {
   const prompt = `
     Create a highly personalized 7-day weekly diet plan for a pregnant woman (Week ${metrics.weekOfPregnancy}) in ${lang}.
-    Current Health Status:
-    - Hemoglobin: ${metrics.hemoglobin} g/dL (Target: 11.0+)
-    - Blood Pressure: ${metrics.systolicBP}/${metrics.diastolicBP} mmHg (Normal: 120/80)
-    - Blood Sugar: ${metrics.bloodSugar} mg/dL (Normal fasting: 70-95 mg/dL)
-    - Weight: ${metrics.weight} kg
-    - HIV Status: ${metrics.hivStatus}
-    - Rh Factor: ${metrics.rhFactor}
+    Preference: ${foodPreference}.
+    Health Status:
+    - Hemoglobin: ${metrics.hemoglobin} g/dL (Target: 11+)
+    - Blood Pressure: ${metrics.systolicBP}/${metrics.diastolicBP} mmHg
+    - Blood Sugar: ${metrics.bloodSugar} mg/dL
     
-    Specific Clinical Guidance:
-    1. If Hemoglobin is low (< 11.0), prioritize iron-rich local foods (e.g., green leafy vegetables, jaggery, beetroot).
-    2. If Blood Pressure is high (> 130/85), suggest low-sodium, heart-healthy options and potassium-rich foods.
-    3. If Blood Sugar is high (> 95 fasting), provide a low-glycemic diet to manage potential gestational diabetes.
-    4. If HIV Positive, ensure high protein and calorie intake to maintain immunity, focusing on zinc and vitamin A/C.
-    5. Ensure the diet is balanced for the current week of pregnancy.
-    6. Focus on locally available foods in rural India.
+    Clinical Protocol:
+    1. High Iron for low Hemoglobin.
+    2. DASH diet principles for high BP.
+    3. Low Glycemic Index for high sugar.
     
-    Return JSON array of 7 days.
+    Return JSON array of 7 days. DO NOT use emojis.
   `;
 
   try {
@@ -187,124 +250,34 @@ export const generateDietPlan = async (metrics: HealthMetrics, foodPreference: s
   }
 };
 
-export const generateMealImage = async (mealDescription: string): Promise<string> => {
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
-      contents: [{
-        parts: [{ text: `A vibrant, high-quality, professional food photography of a healthy, traditional Indian pregnancy meal: ${mealDescription}. Focus on nutrition, vibrant colors, and rural Indian setting. No people, just the plate of food.` }]
-      }],
-      config: {
-        imageConfig: {
-          aspectRatio: "16:9",
-        }
-      }
-    });
-    
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
-      if (part.inlineData) {
-        return `data:image/png;base64,${part.inlineData.data}`;
-      }
-    }
-    return "";
-  } catch (error) {
-    console.error("Error generating meal image:", error);
-    return "";
-  }
-};
-
 export const getChatResponse = async (history: {role: string, parts: {text: string}[]}[], message: string, lang: Language = 'English'): Promise<string> => {
     try {
       const chat = ai.chats.create({
         model: 'gemini-3-flash-preview',
         history: history,
         config: {
-            systemInstruction: `You are 'Janaki', a warm, helpful, and empathetic maternal health assistant. You must respond in ${lang}. Keep your advice simple, practical, and easy to understand for women in rural India. Always maintain a kind and supportive tone.`
+            systemInstruction: `You are Janaki, a world-class maternal health AI assistant. Your goal is 98% accuracy in providing medical guidance. Respond in ${lang}. DO NOT USE EMOJIS. Maintain a professional yet empathetic clinical tone.`
         }
       });
       const result = await chat.sendMessage({ message });
-      return result.text || "Error";
+      return result.text || "Connection Error.";
     } catch (error) {
-      return "Error connecting.";
+      return "Unable to connect to the medical knowledge base.";
     }
   };
-
-export const transcribeAudio = async (audioBase64: string): Promise<string> => {
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: {
-        parts: [
-          { inlineData: { mimeType: "audio/webm", data: audioBase64 } },
-          { text: "Transcribe the spoken audio to text." }
-        ]
-      }
-    });
-    return response.text || "";
-  } catch (error) {
-    return "";
-  }
-};
-
-export const extractMetricsFromAudio = async (audioBase64: string): Promise<{ metrics: Partial<HealthMetrics>, history: Partial<MedicalHistory> }> => {
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: {
-                parts: [
-                    { inlineData: { mimeType: "audio/webm", data: audioBase64 } },
-                    { text: "Extract numeric health metrics and history from dictation. Return JSON. Specifically look for HIV status (Positive/Negative) and Rh factor (+ or -)." }
-                ]
-            },
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        metrics: {
-                            type: Type.OBJECT,
-                            properties: {
-                                systolicBP: { type: Type.NUMBER },
-                                diastolicBP: { type: Type.NUMBER },
-                                bloodSugar: { type: Type.NUMBER },
-                                hemoglobin: { type: Type.NUMBER },
-                                weight: { type: Type.NUMBER },
-                                age: { type: Type.NUMBER },
-                                weekOfPregnancy: { type: Type.NUMBER },
-                                hivStatus: { type: Type.STRING, enum: ['Positive', 'Negative', 'Unknown'] },
-                                rhFactor: { type: Type.STRING, enum: ['Rh+', 'Rh-'] }
-                            }
-                        },
-                        history: {
-                            type: Type.OBJECT,
-                            properties: {
-                                conditions: { type: Type.STRING },
-                                surgeries: { type: Type.STRING },
-                                allergies: { type: Type.STRING }
-                            }
-                        }
-                    }
-                }
-            }
-        });
-        return JSON.parse(response.text!);
-    } catch (error) {
-        return { metrics: {}, history: {} };
-    }
-}
 
 export const getEducationalContent = async (query: string, lang: Language = 'English'): Promise<{ text: string, sources: EducationalSource[] }> => {
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `Provide detailed maternal health advice in ${lang} for: "${query}".`,
+      contents: `Search maternal health advice in ${lang} for: "${query}". Do not use emojis. Providing accurate, evidence-based data.`,
       config: { tools: [{ googleSearch: {} }] },
     });
     const sources: EducationalSource[] = (response.candidates?.[0]?.groundingMetadata?.groundingChunks || [])
       .filter((chunk: any) => chunk.web)
-      .map((chunk: any) => ({ uri: chunk.web.uri, title: chunk.web.title || "Source" }));
-    return { text: response.text || "No info.", sources };
+      .map((chunk: any) => ({ uri: chunk.web.uri, title: chunk.web.title || "Clinical Reference" }));
+    return { text: response.text || "Information unavailable.", sources };
   } catch (error) {
-    return { text: "Error fetching content.", sources: [] };
+    return { text: "Knowledge retrieval error.", sources: [] };
   }
 };
